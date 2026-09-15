@@ -24,12 +24,15 @@ async function main() {
     await admin.query(`INSERT INTO projects(organization_id,workspace_id,name,slug,created_by) VALUES ($1,$2,'A',$3,$4),($5,$6,'B',$7,$8)`, [orgA,wsA,`a-${suffix}`,a,orgB,wsB,`b-${suffix}`,b]);
 
     await runtime.query('BEGIN');
+    await runtime.query('SET LOCAL ROLE panda_runtime');
     await context(runtime, a, orgA);
     const visible = await runtime.query('SELECT organization_id FROM projects ORDER BY organization_id');
     assert.equal(visible.rowCount, 1, 'Org A must see exactly one project');
     assert.equal(visible.rows[0].organization_id, orgA, 'Org A must only see its own project');
     const foreign = await runtime.query('SELECT 1 FROM projects WHERE organization_id=$1', [orgB]);
     assert.equal(foreign.rowCount, 0, 'cross-org read must be denied');
+    const mutation = await runtime.query(`UPDATE projects SET name='blocked' WHERE organization_id=$1 RETURNING id`, [orgB]);
+    assert.equal(mutation.rowCount, 0, 'cross-org mutation must be denied');
     await runtime.query('ROLLBACK');
     console.log('tenant isolation: PASS');
   } finally {
