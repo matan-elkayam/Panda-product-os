@@ -13,6 +13,8 @@ COPY packages/domain/package.json packages/domain/package.json
 RUN pnpm install --no-frozen-lockfile
 
 FROM deps AS build
+ENV NODE_ENV=production
+ENV AUTH_SECRET=build-only-placeholder-not-for-runtime
 COPY . .
 RUN pnpm --filter @panda/web build
 
