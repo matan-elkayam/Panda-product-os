@@ -1,0 +1,14 @@
+{
+  "name": "panda-product-os",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --filter @panda/web dev",
+    "build": "pnpm --filter @panda/web build",
+    "lint": "pnpm --filter @panda/web lint",
+    "typecheck": "pnpm --filter @panda/web typecheck",
+    "test": "pnpm --filter @panda/web test"
+  }
+}
