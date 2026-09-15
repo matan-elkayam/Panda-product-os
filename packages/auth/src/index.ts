@@ -4,17 +4,21 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { verifyPassword } from './passwords';
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) throw new Error('DATABASE_URL is required');
-if (!process.env.AUTH_SECRET) throw new Error('AUTH_SECRET is required');
+let pool: Pool | undefined;
+function getPool() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error('DATABASE_URL is required at runtime');
+  pool ??= new Pool({ connectionString, max: 5 });
+  return pool;
+}
 
-const pool = new Pool({ connectionString, max: 5 });
 const credentialsSchema = z.object({
   email: z.string().email().transform((value) => value.toLowerCase().trim()),
   password: z.string().min(12).max(256),
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  secret: process.env.AUTH_SECRET,
   session: { strategy: 'jwt', maxAge: 60 * 60 * 8 },
   providers: [
     Credentials({
@@ -23,7 +27,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const parsed = credentialsSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
-        const result = await pool.query<{
+        const result = await getPool().query<{
           id: string;
           email: string;
           name: string | null;
