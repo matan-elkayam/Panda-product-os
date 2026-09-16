@@ -1,0 +1,67 @@
+name: Bootstrap Staging SSH
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panda-staging-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify GitHub to VPS SSH
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate secrets
+        shell: bash
+        env:
+          HOST: ${{ secrets.STAGING_HOST }}
+          USER: ${{ secrets.STAGING_USER }}
+          KEY: ${{ secrets.STAGING_SSH_KEY }}
+          PORT: ${{ secrets.STAGING_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$HOST"
+          test -n "$USER"
+          test -n "$KEY"
+          test -n "$PORT"
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          HOST: ${{ secrets.STAGING_HOST }}
+          KEY: ${{ secrets.STAGING_SSH_KEY }}
+          PORT: ${{ secrets.STAGING_PORT }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify VPS bootstrap
+        shell: bash
+        env:
+          HOST: ${{ secrets.STAGING_HOST }}
+          USER: ${{ secrets.STAGING_USER }}
+          PORT: ${{ secrets.STAGING_PORT }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=10 -p "$PORT" "$USER@$HOST" '
+            set -e
+            echo "PANDA_SSH_CONNECTED"
+            id
+            docker --version
+            docker compose version
+            test -d /opt/panda/product-os/staging
+            test -w /opt/panda/product-os/staging
+            test ! -e /opt/panda/product-os/staging/.bootstrap-write-test || rm -f /opt/panda/product-os/staging/.bootstrap-write-test
+            touch /opt/panda/product-os/staging/.bootstrap-write-test
+            rm /opt/panda/product-os/staging/.bootstrap-write-test
+            echo "PANDA_STAGING_BOOTSTRAP_VERIFIED"
+          '
