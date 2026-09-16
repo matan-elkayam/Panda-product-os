@@ -22,6 +22,13 @@ cd "$APP_DIR" || fail "APP_DIR does not exist: $APP_DIR"
 [ -f .env ] || fail "Missing $APP_DIR/.env"
 [ -f "$COMPOSE_FILE" ] || fail "Missing compose file: $COMPOSE_FILE"
 
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+[ -n "${MIGRATION_DATABASE_URL:-}" ] || fail "MIGRATION_DATABASE_URL is required; run the runtime DB bootstrap before deploying"
+[ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is required"
+
 log "Fetching $BRANCH"
 git fetch --prune origin "$BRANCH"
 git checkout -B "$BRANCH" "origin/$BRANCH"
@@ -46,10 +53,10 @@ for attempt in $(seq 1 30); do
   sleep 2
 done
 
-log "Applying database migrations from worker image"
-compose run --rm --no-deps worker pnpm --filter @panda/database migrate
+log "Applying database migrations with privileged migration connection"
+compose run --rm --no-deps -e MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL" worker pnpm --filter @panda/database migrate
 
-log "Starting staging application"
+log "Starting staging application with runtime database connection"
 compose up -d --remove-orphans
 
 log "Waiting for readiness at $HEALTH_URL"
