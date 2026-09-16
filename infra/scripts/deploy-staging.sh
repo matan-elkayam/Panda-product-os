@@ -4,13 +4,18 @@ set -Eeuo pipefail
 APP_DIR="${APP_DIR:-/opt/panda/product-os/staging}"
 BRANCH="${BRANCH:-foundation/m0-engineering}"
 COMPOSE_FILE="${COMPOSE_FILE:-infra/docker/docker-compose.yml}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3100/api/health/ready}"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-panda-product-os-staging}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${WEB_PORT:-3100}/api/health/ready}"
+
+export COMPOSE_PROJECT_NAME
 
 log() { printf '[panda-deploy] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
+compose() { docker compose --env-file .env -f "$COMPOSE_FILE" "$@"; }
 
 command -v git >/dev/null || fail "git is required"
 command -v docker >/dev/null || fail "docker is required"
+command -v curl >/dev/null || fail "curl is required"
 docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is required"
 
 cd "$APP_DIR" || fail "APP_DIR does not exist: $APP_DIR"
@@ -19,28 +24,31 @@ cd "$APP_DIR" || fail "APP_DIR does not exist: $APP_DIR"
 
 log "Fetching $BRANCH"
 git fetch --prune origin "$BRANCH"
-git checkout "$BRANCH"
+git checkout -B "$BRANCH" "origin/$BRANCH"
 git reset --hard "origin/$BRANCH"
 
 log "Building staging images"
-docker compose --env-file .env -f "$COMPOSE_FILE" build --pull
+compose build --pull
 
-log "Applying database migrations"
-docker compose --env-file .env -f "$COMPOSE_FILE" run --rm web pnpm --filter @panda/database migrate
+log "Starting PostgreSQL and Redis"
+compose up -d postgres redis
 
-log "Starting staging stack"
-docker compose --env-file .env -f "$COMPOSE_FILE" up -d --remove-orphans
+log "Applying database migrations from worker image"
+compose run --rm --no-deps worker pnpm --filter @panda/database migrate
 
-log "Waiting for readiness"
-for attempt in $(seq 1 30); do
+log "Starting staging application"
+compose up -d --remove-orphans
+
+log "Waiting for readiness at $HEALTH_URL"
+for attempt in $(seq 1 45); do
   if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null; then
     log "Staging is READY"
-    docker compose --env-file .env -f "$COMPOSE_FILE" ps
+    compose ps
     exit 0
   fi
   sleep 2
 done
 
-docker compose --env-file .env -f "$COMPOSE_FILE" ps || true
-docker compose --env-file .env -f "$COMPOSE_FILE" logs --tail=120 web worker || true
+compose ps || true
+compose logs --tail=160 web worker postgres redis || true
 fail "Readiness check failed: $HEALTH_URL"
