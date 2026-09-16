@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "migrate": "tsx src/migrate.ts",
-    "test:tenant": "tsx tests/tenant-isolation.ts"
+    "test:tenant": "tsx tests/tenant-isolation.ts",
+    "staging:user": "tsx scripts/create-staging-user.ts"
   },
   "dependencies": {
     "pg": "^8.13.1"
