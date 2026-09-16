@@ -6,6 +6,7 @@
   "scripts": {
     "migrate": "tsx src/migrate.ts",
     "test:tenant": "tsx tests/tenant-isolation.ts",
+    "test:authz": "tsx tests/authorization-negative.ts",
     "staging:user": "tsx scripts/create-staging-user.ts"
   },
   "dependencies": {
