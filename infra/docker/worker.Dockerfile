@@ -1,9 +1,6 @@
 FROM node:24-alpine
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
 ENV NODE_ENV=production
-RUN corepack enable \
-    && corepack prepare pnpm@10.17.1 --activate \
+RUN npm install --global pnpm@10.17.1 \
     && pnpm --version \
     && addgroup -S panda \
     && adduser -S panda -G panda
