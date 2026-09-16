@@ -1,20 +1,16 @@
 name: Bootstrap Staging SSH
-
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: panda-staging-bootstrap
   cancel-in-progress: false
-
 jobs:
-  verify:
-    name: Verify GitHub to VPS SSH
+  deploy:
+    name: Bootstrap and deploy staging
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Validate secrets
         shell: bash
@@ -25,11 +21,7 @@ jobs:
           PORT: ${{ secrets.STAGING_PORT }}
         run: |
           set -euo pipefail
-          test -n "$HOST"
-          test -n "$USER"
-          test -n "$KEY"
-          test -n "$PORT"
-
+          test -n "$HOST" && test -n "$USER" && test -n "$KEY" && test -n "$PORT"
       - name: Configure SSH
         shell: bash
         env:
@@ -43,8 +35,67 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-
-      - name: Verify VPS bootstrap
+      - name: Bootstrap repository and environment
+        shell: bash
+        env:
+          HOST: ${{ secrets.STAGING_HOST }}
+          USER: ${{ secrets.STAGING_USER }}
+          PORT: ${{ secrets.STAGING_PORT }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=10 -p "$PORT" "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -Eeuo pipefail
+          APP_DIR=/opt/panda/product-os/staging
+          REPO=https://github.com/matan-elkayam/Panda-product-os.git
+          BRANCH=foundation/m0-engineering
+          mkdir -p "$APP_DIR"
+          cd "$APP_DIR"
+          if [ ! -d .git ]; then
+            test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)" || { echo 'staging directory is not empty' >&2; exit 1; }
+            git clone --branch "$BRANCH" --single-branch "$REPO" .
+          else
+            git fetch --prune origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+            git reset --hard "origin/$BRANCH"
+          fi
+          if [ ! -f .env ]; then
+            umask 077
+            POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+            AUTH_SECRET="$(openssl rand -hex 32)"
+            {
+              echo 'NODE_ENV=production'
+              echo 'WEB_PORT=3100'
+              echo 'NEXT_PUBLIC_APP_URL=http://127.0.0.1:3100'
+              echo 'AUTH_URL=http://127.0.0.1:3100'
+              echo 'AUTH_TRUST_HOST=true'
+              echo "AUTH_SECRET=$AUTH_SECRET"
+              echo 'POSTGRES_DB=panda_product_os_staging'
+              echo 'POSTGRES_USER=panda_staging'
+              echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+              echo "DATABASE_URL=postgresql://panda_staging:$POSTGRES_PASSWORD@postgres:5432/panda_product_os_staging"
+              echo 'REDIS_URL=redis://redis:6379'
+              echo 'AI_PROVIDER='
+              echo 'AI_API_KEY='
+            } > .env
+            chmod 600 .env
+          fi
+          echo PANDA_STAGING_REPO_READY
+          REMOTE
+      - name: Deploy staging stack
+        shell: bash
+        env:
+          HOST: ${{ secrets.STAGING_HOST }}
+          USER: ${{ secrets.STAGING_USER }}
+          PORT: ${{ secrets.STAGING_PORT }}
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=10 -p "$PORT" "$USER@$HOST" 'bash -se' <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/panda/product-os/staging
+          chmod +x infra/scripts/deploy-staging.sh
+          WEB_PORT=3100 COMPOSE_PROJECT_NAME=panda-product-os-staging ./infra/scripts/deploy-staging.sh
+          REMOTE
+      - name: Verify staging health
         shell: bash
         env:
           HOST: ${{ secrets.STAGING_HOST }}
@@ -54,14 +105,11 @@ jobs:
           set -euo pipefail
           ssh -o BatchMode=yes -o ConnectTimeout=10 -p "$PORT" "$USER@$HOST" '
             set -e
-            echo "PANDA_SSH_CONNECTED"
-            id
-            docker --version
-            docker compose version
-            test -d /opt/panda/product-os/staging
-            test -w /opt/panda/product-os/staging
-            test ! -e /opt/panda/product-os/staging/.bootstrap-write-test || rm -f /opt/panda/product-os/staging/.bootstrap-write-test
-            touch /opt/panda/product-os/staging/.bootstrap-write-test
-            rm /opt/panda/product-os/staging/.bootstrap-write-test
-            echo "PANDA_STAGING_BOOTSTRAP_VERIFIED"
+            curl --fail --silent --show-error http://127.0.0.1:3100/api/health/live
+            echo
+            curl --fail --silent --show-error http://127.0.0.1:3100/api/health/ready
+            echo
+            cd /opt/panda/product-os/staging
+            COMPOSE_PROJECT_NAME=panda-product-os-staging docker compose --env-file .env -f infra/docker/docker-compose.yml ps
+            echo PANDA_STAGING_DEPLOY_VERIFIED
           '
