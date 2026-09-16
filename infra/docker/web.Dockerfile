@@ -20,6 +20,8 @@ RUN pnpm --filter @panda/web build
 
 FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 WORKDIR /app
 RUN addgroup -S panda && adduser -S panda -G panda
 COPY --from=build --chown=panda:panda /app/apps/web/.next/standalone ./
