@@ -3,8 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error('DATABASE_URL is required');
+const url = process.env.MIGRATION_DATABASE_URL;
+if (!url) throw new Error('MIGRATION_DATABASE_URL is required for migrations');
 
 const pool = new Pool({ connectionString: url, max: 1 });
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
@@ -21,7 +21,7 @@ async function main() {
     for (const file of files) {
       const done = await client.query('SELECT 1 FROM schema_migrations WHERE version = $1', [file]);
       if (done.rowCount) continue;
-      const sql = await readFile(join(migrationsDir, file), 'utf8');
+      const sql = await readFile(join(migrationsDir, '..', 'migrations', file), 'utf8');
       await client.query('BEGIN');
       try {
         await client.query(sql);
