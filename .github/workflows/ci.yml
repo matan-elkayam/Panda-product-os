@@ -24,6 +24,7 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     env:
+      MIGRATION_DATABASE_URL: postgresql://panda:panda_ci_password@localhost:5432/panda_ci
       DATABASE_URL: postgresql://panda:panda_ci_password@localhost:5432/panda_ci
       AUTH_SECRET: ci-only-auth-secret-ci-only-auth-secret
     steps:
