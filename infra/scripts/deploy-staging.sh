@@ -33,6 +33,19 @@ compose build --pull
 log "Starting PostgreSQL and Redis"
 compose up -d postgres redis
 
+log "Waiting for PostgreSQL readiness"
+for attempt in $(seq 1 30); do
+  if compose exec -T postgres pg_isready -U "${POSTGRES_USER:-panda_staging}" -d "${POSTGRES_DB:-panda_product_os_staging}" >/dev/null 2>&1; then
+    log "PostgreSQL is READY"
+    break
+  fi
+  if [ "$attempt" -eq 30 ]; then
+    compose logs --tail=120 postgres || true
+    fail "PostgreSQL readiness timed out"
+  fi
+  sleep 2
+done
+
 log "Applying database migrations from worker image"
 compose run --rm --no-deps worker pnpm --filter @panda/database migrate
 
