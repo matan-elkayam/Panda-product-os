@@ -44,10 +44,10 @@ jobs:
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'panda_app') THEN
               CREATE ROLE panda_app LOGIN PASSWORD 'panda_ci_runtime_password'
-                NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+                NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
             ELSE
               ALTER ROLE panda_app WITH LOGIN PASSWORD 'panda_ci_runtime_password'
-                NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+                NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
             END IF;
           END
           $$;
