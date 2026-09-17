@@ -1,0 +1,22 @@
+BEGIN;
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS password_hash text,
+  ADD COLUMN IF NOT EXISTS password_changed_at timestamptz;
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash text NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS password_reset_tokens_expiry_idx ON password_reset_tokens(expires_at) WHERE used_at IS NULL;
+
+GRANT SELECT, UPDATE ON TABLE users TO panda_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE password_reset_tokens TO panda_runtime;
+
+COMMIT;

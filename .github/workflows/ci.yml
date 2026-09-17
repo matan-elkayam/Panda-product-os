@@ -1,0 +1,65 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: panda
+          POSTGRES_PASSWORD: panda_ci_password
+          POSTGRES_DB: panda_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U panda -d panda_ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      MIGRATION_DATABASE_URL: postgresql://panda:panda_ci_password@localhost:5432/panda_ci
+      DATABASE_URL: postgresql://panda_app:panda_ci_runtime_password@localhost:5432/panda_ci
+      AUTH_SECRET: ci-only-auth-secret-ci-only-auth-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @panda/database migrate
+      - name: Provision least-privilege CI runtime role
+        env:
+          PGPASSWORD: panda_ci_password
+        run: |
+          psql -h localhost -U panda -d panda_ci -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'panda_app') THEN
+              CREATE ROLE panda_app LOGIN PASSWORD 'panda_ci_runtime_password'
+                NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
+            ELSE
+              ALTER ROLE panda_app WITH LOGIN PASSWORD 'panda_ci_runtime_password'
+                NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
+            END IF;
+          END
+          $$;
+          GRANT panda_runtime TO panda_app;
+          SQL
+      - run: pnpm --filter @panda/database test:tenant
+      - run: pnpm --filter @panda/database test:authz
+      - run: pnpm --filter @panda/auth test
+      - run: pnpm --filter @panda/domain test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: docker build -f infra/docker/web.Dockerfile -t panda-product-os-web:ci .
+      - run: docker build -f infra/docker/worker.Dockerfile -t panda-product-os-worker:ci .
